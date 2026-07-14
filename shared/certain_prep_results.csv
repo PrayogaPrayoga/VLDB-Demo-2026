@@ -1,11 +1,7 @@
 Metric,Value
 Number of Rows with missing values,1022.0
 Missing Factor,0.3900763358778626
-Running Time (CM),0.014568328857421875
-Accuracy (CM),0.4188861985472155
-Accuracy (KNN),0.39709443099273606
-Running Time (KNN),0.2364671230316162
-Accuracy (MI),0.39951573849878935
-Running Time (MI),0.018849611282348633
-Accuracy (NI),0.4188861985472155
-Running Time (NI),0.005260944366455078
+Rows Repaired (MR),306.0
+% Repaired (MR),11.68
+Running Time (MR),0.21401166915893555
+Accuracy (MR),0.5375302663438256
