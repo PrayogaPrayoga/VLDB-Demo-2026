@@ -115,12 +115,15 @@ def preprocess_for_training(df, feature_columns, label):
 
 # ─── Certain Model ─────────────────────────────────────────────────────────────
 
-def check_certain_model(X_train, y_train, X_test, y_test, verbose=False):
+def check_certain_model_classification(X_train, y_train, X_test, y_test, verbose=False):
     res = True
     seed = np.random.randint(0, 100000)
     missing_data_indices = []
     missing_column_indices = []
 
+    # ─── Preprocessing ──────────────────────────────────────────────────────
+    # Split X_train into complete rows vs. rows with missing values, then
+    # scale everything with a MinMaxScaler fit on the complete rows only.
     X_train = X_train.values if isinstance(X_train, pd.DataFrame) else X_train
     y_train = y_train.values if isinstance(y_train, pd.DataFrame) else y_train
 
@@ -138,6 +141,10 @@ def check_certain_model(X_train, y_train, X_test, y_test, verbose=False):
     X_train_missing_rows = scaler.transform(X_train_missing_rows)
     X_test = scaler.transform(X_test)
 
+    # ─── Checking algorithm ─────────────────────────────────────────────────
+    # Train an SVM on the complete rows, then test whether the missing
+    # columns/rows could have altered the decision boundary (i.e. whether
+    # the model is "certain" despite the missing data).
     svm_model = SGDClassifier(
         loss="hinge", max_iter=1000000,
         fit_intercept=True, warm_start=True, random_state=seed
@@ -173,6 +180,76 @@ def check_certain_model(X_train, y_train, X_test, y_test, verbose=False):
 
     return res, cm_score, missing_data_table, missing_data_indices
 
+
+def check_certain_model_regression(X_train, y_train, X_test, y_test, verbose=False):
+    assert not X_test.isnull().any().any(), "X_test must be fully observed"
+
+    # Rebind to newly-scaled DataFrames (not X_train.loc[...] = ...) so we
+    # never write into the caller's original data, same principle as the
+    # classification version. Kept as DataFrames (not plain arrays like
+    # classification does) because get_submatrix()/.fillna() below need
+    # column/NaN-aware DataFrame methods, not just position-indexed values.
+    scaler = MinMaxScaler()
+    X_train = pd.DataFrame(
+        scaler.fit_transform(X_train[X_train.columns]),
+        columns=X_train.columns, index=X_train.index,
+    )
+    X_test = pd.DataFrame(
+        scaler.transform(X_test[X_train.columns]),
+        columns=X_train.columns, index=X_test.index,
+    )
+
+    missing_train, CX_train = get_submatrix(X_train)
+    missing_indices = X_train.index[X_train.isnull().any(axis=1)].tolist()
+    missing_data_table = X_train.loc[missing_indices]
+
+    # No fully-observed column to anchor a baseline model on — certification
+    # can't be evaluated, so treat the data as not certain and let the
+    # caller fall back to Minimal Repair.
+    if CX_train.shape[1] == 0:
+        return False, 0.0, missing_data_table, missing_indices
+
+    reg = LinearRegression(fit_intercept=False).fit(CX_train.values, y_train)
+    w_bar = reg.coef_
+    loss = np.dot(CX_train.values, w_bar.T) - y_train
+    result = check_orthogonal(missing_train, loss)
+    score = 0.0
+    if result:
+        clf = LinearRegression(fit_intercept=False).fit(X_train.fillna(0).values, y_train) #NEED TO VERIFY 
+        y_pred = clf.predict(X_test.values)
+        score = mean_squared_error(y_pred, y_test.values)
+
+    if verbose:
+        print(f"The mean squared error of the optimal model is {score:.2f}")
+
+    return result, score, missing_data_table, missing_indices
+
+def get_submatrix(data):
+    columns_without_nulls = data.columns[data.notnull().all()]
+    C = data[columns_without_nulls]
+    missing = data.drop(columns_without_nulls,axis = 1)
+    return missing,C
+
+
+def check_orthogonal(M,l):
+    flag = True
+    case = ''
+    for i in range(M.shape[1]):
+        total = 0
+        for j in range(len(l)):
+            if np.isnan(M.iloc[j,i]) and not np.isclose(l[j], 0,atol=1e-02):
+                flag = False
+                case = 'case1: ' + str(l[j])
+                break
+            elif not np.isnan(M.iloc[j,i]):
+                #print(f'inside case2 : M:{M.iloc[j,i]}, l:{l[j]}')
+                total += M.iloc[j,i] * l[j]
+        if not np.isclose(total ,0, atol = 1e-02):
+            flag = False
+            case = 'case2: ' + str(total)
+            break
+    #print(case)
+    return flag
 
 # ─── Baseline Imputers ─────────────────────────────────────────────────────────
 
@@ -221,6 +298,8 @@ def get_naive_imputer_model_classification(df_train, df_test, label):
 def _prepare_split(df, label):
     X, y = get_Xy(df, label)
     X_train, X_test, Y_train, Y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+    X_train = X_train.reset_index(drop=True)
+    Y_train = Y_train.reset_index(drop=True)
     df_train = pd.concat([X_train, Y_train], axis=1)
     df_test = pd.concat([X_test, Y_test], axis=1)
     df_test.dropna(inplace=True)
@@ -230,14 +309,20 @@ def _prepare_split(df, label):
     return X_train, Y_train, X_test, y_test, df_train, df_test
 
 
-def certain_clean_main(X_train, Y_train, X_test, y_test, verbose=False):
+def certain_clean_main(X_train, Y_train, X_test, y_test, task_type='classification', verbose=False):
     total_examples = len(X_train)
     rows_with_missing = len(X_train[X_train.isnull().any(axis=1)])
     missing_factor = rows_with_missing / total_examples
 
     start = time.time()
-    result, CM_score, missing_data_table, missing_indices = check_certain_model(
-        X_train.values, Y_train.values, X_test.values, y_test.values, verbose=verbose)
+    if task_type == 'regression':
+        result, CM_score, missing_data_table, missing_indices = check_certain_model_regression(
+            X_train, Y_train, X_test, y_test, verbose=verbose)
+        score_label = 'MSE (CM)'
+    else:
+        result, CM_score, missing_data_table, missing_indices = check_certain_model_classification(
+            X_train.values, Y_train.values, X_test.values, y_test.values, verbose=verbose)
+        score_label = 'Accuracy (CM)'
     CM_time = time.time() - start
 
     results = [
@@ -245,7 +330,7 @@ def certain_clean_main(X_train, Y_train, X_test, y_test, verbose=False):
         {'Metric': 'Missing Factor',                     'Value': missing_factor},
         {'Metric': 'CM Result',                          'Value': 'Exists' if result else 'Does not Exist'},
         {'Metric': 'Running Time (CM)',                  'Value': CM_time},
-        {'Metric': 'Accuracy (CM)',                      'Value': CM_score},
+        {'Metric': score_label,                          'Value': CM_score},
     ]
     return pd.DataFrame(results), missing_data_table, result, missing_indices
 
@@ -297,5 +382,116 @@ def MR_main(X_train, Y_train, X_test, y_test, batch_size=50, top_k=0.3, seed=42,
         {'Metric': '% Repaired (MR)',                    'Value': round(pct_repaired, 2)},
         {'Metric': 'Running Time (MR)',                  'Value': mr_time},
         {'Metric': 'Accuracy (MR)',                      'Value': mr_score},
+    ]
+    return pd.DataFrame(results), missing_data_table
+
+
+def omp_select_features(X, y, threshold, max_iter=100):
+    """Orthogonal-Matching-Pursuit-style feature selection (ported from
+    MI/Linear_Regression/synthetic/omp_test_mnar copy 2.py). Starting from the
+    always-kept complete columns, greedily adds whichever incomplete column is
+    most correlated with the current residual, stopping once no remaining
+    incomplete column's correlation clears `threshold`. Returns the indices of
+    all kept features (complete + selected incomplete) and how many of the
+    incomplete features were selected."""
+    numNeedingImputation = 0
+
+    X_impute = X.copy()
+    X_impute.fillna(X_impute.mean(), inplace=True)
+    assert not X_impute.isna().any().any(), "There are still NaN values in X_impute."
+    assert not y.isna().any(), "There are NaN values in the target vector y."
+
+    complete_features = X.columns[X.notna().all()].tolist()
+    S = [X.columns.get_loc(feature) for feature in complete_features]
+
+    incomplete_features = X.columns[X.isna().any()].tolist()
+    remaining_features = [X.columns.get_loc(feature) for feature in incomplete_features]
+
+    if complete_features:
+        model = LinearRegression()
+        model.fit(X_impute[complete_features], y)
+        r = y - model.predict(X_impute[complete_features])
+    else:
+        r = y - y.mean()
+
+    for _ in range(max_iter):
+        if not remaining_features:
+            break
+
+        dot_products = X_impute.iloc[:, remaining_features].T @ r
+        norms = np.linalg.norm(X_impute.iloc[:, remaining_features], axis=0) * np.linalg.norm(r)
+        norms = np.where(norms == 0, 1e-10, norms)
+        cosine_similarities = np.abs(dot_products / norms)
+
+        max_cosine_similarity = np.max(cosine_similarities)
+        if threshold > 0 and max_cosine_similarity < threshold:
+            break
+        if np.isnan(max_cosine_similarity):
+            break
+
+        j = remaining_features[np.argmax(cosine_similarities)]
+        S.append(j)
+        remaining_features.remove(j)
+        numNeedingImputation += 1
+
+        model = LinearRegression()
+        model.fit(X_impute.iloc[:, S], y)
+        r = y - model.predict(X_impute.iloc[:, S])
+
+    return S, numNeedingImputation
+
+
+def MR_main_regression(X_train, Y_train, X_test, y_test, threshold=0.005, verbose=True):
+    total_examples = len(X_train)
+    rows_with_missing = len(X_train[X_train.isnull().any(axis=1)])
+    missing_factor = rows_with_missing / total_examples
+
+    # Minimal Repair (regression): OMP-style feature selection decides which
+    # incomplete columns are correlated enough with the target to be worth
+    # imputing; the rest are dropped entirely rather than imputed.
+    mr_start = time.time()
+    must_impute_features, numNeedingImputation = omp_select_features(X_train, Y_train, threshold)
+    must_impute_set = set(must_impute_features)
+
+    incomplete_columns = X_train.columns[X_train.isna().any()].tolist()
+    selected_columns = [c for c in incomplete_columns if X_train.columns.get_loc(c) in must_impute_set]
+    dropped_columns = [c for c in incomplete_columns if c not in selected_columns]
+
+    X_train_repaired = X_train.drop(columns=dropped_columns)
+    X_test_repaired = X_test.drop(columns=dropped_columns)
+
+    rows_repaired = 0
+    if selected_columns:
+        rows_repaired = int(X_train[selected_columns].isna().any(axis=1).sum())
+        imputer = SimpleImputer(missing_values=np.nan, strategy='mean')
+        X_train_repaired[selected_columns] = imputer.fit_transform(X_train_repaired[selected_columns])
+
+    assert not X_train_repaired.isnull().any().any()
+
+    model = LinearRegression()
+    model.fit(X_train_repaired.values, Y_train.values)
+    y_pred = model.predict(X_test_repaired.values)
+    mr_score = mean_squared_error(y_test.values, y_pred)
+    mr_time = time.time() - mr_start
+
+    pct_repaired = rows_repaired / total_examples * 100
+    if selected_columns:
+        missing_data_table = X_train[X_train[selected_columns].isna().any(axis=1)]
+    else:
+        missing_data_table = X_train.iloc[0:0]
+
+    if verbose:
+        print(f"Features imputed: {numNeedingImputation}, Features dropped: {len(dropped_columns)}")
+        print("mr: ", mr_score)
+
+    results = [
+        {'Metric': 'Number of Rows with missing values', 'Value': rows_with_missing},
+        {'Metric': 'Missing Factor',                     'Value': missing_factor},
+        {'Metric': 'Rows Repaired (MR)',                 'Value': rows_repaired},
+        {'Metric': '% Repaired (MR)',                    'Value': round(pct_repaired, 2)},
+        {'Metric': 'Features Imputed (MR)',              'Value': numNeedingImputation},
+        {'Metric': 'Features Dropped (MR)',              'Value': len(dropped_columns)},
+        {'Metric': 'Running Time (MR)',                  'Value': mr_time},
+        {'Metric': 'MSE (MR)',                           'Value': mr_score},
     ]
     return pd.DataFrame(results), missing_data_table

@@ -1,7 +1,9 @@
 Metric,Value
-Number of Rows with missing values,1022.0
-Missing Factor,0.3900763358778626
-Rows Repaired (MR),306.0
-% Repaired (MR),11.68
-Running Time (MR),0.21401166915893555
-Accuracy (MR),0.5375302663438256
+Number of Rows with missing values,6552.0
+Missing Factor,0.9110122358175751
+Rows Repaired (MR),6552.0
+% Repaired (MR),91.1
+Features Imputed (MR),4.0
+Features Dropped (MR),0.0
+Running Time (MR),0.579836368560791
+MSE (MR),1.9797386945895987
