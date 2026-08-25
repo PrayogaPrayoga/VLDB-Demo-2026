@@ -129,7 +129,7 @@ DEFAULTS = {
     "variant_key": None,
     "model_key": None,
     "use_threshold": False,
-    "threshold": 5.0,
+    "threshold": 0.1,
     "method_key": None,
     "repair_ran": False,
 }
@@ -633,9 +633,10 @@ def page_threshold():
     st.session_state.use_threshold = use_threshold
 
     if use_threshold:
-        st.session_state.threshold = st.slider(
-            "Error tolerance (e)", min_value=0.0, max_value=10.0,
-            value=float(st.session_state.threshold), step=0.5, key="threshold_slider",
+        st.session_state.threshold = st.number_input(
+            "Error tolerance (e)", min_value=0.0,
+            value=float(st.session_state.threshold), step=0.1, format="%.2f",
+            key="threshold_input",
             help="A model is an ACM if, for every possible repair, its training loss is "
                  "within e of the minimal loss on that repair. Larger e is easier to satisfy.",
         )
@@ -720,23 +721,31 @@ def page_check():
                    "ActiveClean and Full Repair spend time repairing unnecessarily.")
 
         with st.expander("Show detailed comparison table"):
+            # A failed baseline (out of memory / over budget) shows only the
+            # failure reason — no accuracy or imputation ratio.
+            def _crow(label, res, ratio, best=False):
+                if not res["finished"]:
+                    return (label, "\u2014", dnf_label(res.get("dnf_reason"), res["time_s"]),
+                            "\u2014", best, True)
+                return (label, fmt_score(res["score"], slabel), fmt_time(res["time_s"]),
+                        ratio, best, False)
+
             rows = [
                 (f"MinPrep · {name}", fmt_score(check["score"], slabel),
-                 fmt_time(check["time_s"]), "0%", True),
-                ("ActiveClean", fmt_score(ac["score"], slabel),
-                 fmt_time(ac["time_s"]), f"{ac['pct_imputed']:.1f}%", False),
-                ("Imputing all", fmt_score(full["score"], slabel),
-                 fmt_time(full["time_s"]), "100%", False),
+                 fmt_time(check["time_s"]), "0%", True, False),
+                _crow("ActiveClean", ac, f"{ac['pct_imputed']:.1f}%"),
+                _crow("Imputing all", full, "100%"),
             ]
             html = ("<table class='mp-cmp'><thead><tr>"
                     f"<th>Method</th><th class='num'>{slabel}</th>"
                     "<th class='num'>Time</th><th class='num'>Imputation ratio</th>"
                     "</tr></thead><tbody>")
-            for method, sc, tm, imp, best in rows:
+            for method, sc, tm, imp, best, failed in rows:
                 tag = "<span class='tag'>no repair</span>" if best else ""
                 cls = " class='best'" if best else ""
+                tmcls = " style='color:#b91c1c'" if failed else ""
                 html += (f"<tr{cls}><td class='method'>{method}{tag}</td>"
-                         f"<td class='num'>{sc}</td><td class='num'>{tm}</td>"
+                         f"<td class='num'>{sc}</td><td class='num'{tmcls}>{tm}</td>"
                          f"<td class='num'>{imp}</td></tr>")
             html += "</tbody></table>"
             st.markdown(html, unsafe_allow_html=True)
@@ -824,6 +833,61 @@ def page_imputation():
 
     st.write("")
 
+    is_manual = method_key == "manual"
+
+    if is_manual:
+        # Manual repair cost is dominated by domain-expert effort, not machine
+        # time — so we hide wall-clock time and compare model quality and how
+        # much data each approach makes you hand-repair (imputation ratio).
+        st.info("**Manual repair** is done by domain experts, so its dominant cost is "
+                "human effort — not machine time. We therefore compare model quality and "
+                "how much of the data each approach requires you to hand-repair "
+                "(imputation ratio), rather than wall-clock time.")
+
+        m_rows = [
+            (f"MinPrep · {repair_short}", fmt_score(repair["score"], slabel),
+             f"{repair['pct_imputed']:.1f}%", True, False),
+            ("Drop all incomplete samples", fmt_score(drop["score"], slabel), "0%", False, False),
+            ("Imputing all", fmt_score(full["score"], slabel), "100%", False, False),
+        ]
+        if ac is not None:
+            m_rows.append(("ActiveClean", fmt_score(ac["score"], slabel),
+                           f"{ac['pct_imputed']:.1f}%", False, False))
+        else:
+            m_rows.append(("ActiveClean", None, None, False, True))
+
+        html = ("<table class='mp-cmp'><thead><tr>"
+                f"<th>Method</th><th class='num'>{slabel}</th>"
+                "<th class='num'>Imputation ratio</th>"
+                "</tr></thead><tbody>")
+        for label, sc, imp, best, na in m_rows:
+            if na:
+                html += (f"<tr><td class='method'>{label}</td>"
+                         "<td colspan='2' style='text-align:center;color:#94a3b8'>"
+                         "Not available for this model</td></tr>")
+                continue
+            tag = "<span class='tag'>minimal repair</span>" if best else ""
+            cls = " class='best'" if best else ""
+            html += (f"<tr{cls}><td class='method'>{label}{tag}</td>"
+                     f"<td class='num'>{sc}</td><td class='num'>{imp}</td></tr>")
+        html += "</tbody></table>"
+        st.markdown(html, unsafe_allow_html=True)
+        st.caption(f"Scenario 2 — with manual repair, MinPrep asks a domain expert to "
+                   f"hand-repair only {repair['pct_imputed']:.1f}% of the dirty samples "
+                   f"({repair['rows_imputed']:,} rows) versus 100% "
+                   f"({full['rows_imputed']:,} rows) for repairing everything, at matching "
+                   "model accuracy.")
+
+        st.write("")
+        b1, b2, _ = st.columns([1, 3, 1.5])
+        with b1:
+            st.button("← Back", width='stretch', key="imp_back2",
+                      on_click=go, args=(("check" if supports_check else "model"),))
+        with b2:
+            st.button("✓ Accurate model found with minimal data repair",
+                      type="primary", on_click=reset_all, width='stretch', key="imp_exit")
+        return
+
     # ── The Race: MinPrep minimal repair vs three baselines ────────────────
     lanes = [
         race_lane(f"MinPrep · {repair_short}", repair, PRIMARY, slabel,
@@ -843,28 +907,30 @@ def page_imputation():
                "accuracy of far more expensive baselines — which may not even finish at scale.")
 
     with st.expander("Show detailed comparison table"):
+        # A failed method (out of memory / over budget) shows only the failure
+        # reason — no accuracy or imputation ratio.
+        def _row(label, res, ratio, best=False):
+            if not res["finished"]:
+                return (label, "\u2014", dnf_label(res.get("dnf_reason"), res["time_s"]),
+                        "\u2014", best, False, True)
+            return (label, fmt_score(res["score"], slabel), fmt_time(res["time_s"]),
+                    ratio, best, False, False)
+
         rows = [
-            (f"MinPrep · {repair_short}", fmt_score(repair["score"], slabel),
-             fmt_time(repair["time_s"]), f"{repair['pct_imputed']:.1f}%", True, False),
-            ("Drop all incomplete samples", fmt_score(drop["score"], slabel),
-             fmt_time(drop["time_s"]), "0%", False, False),
-            ("Imputing all", fmt_score(full["score"], slabel),
-             (dnf_label(full.get("dnf_reason"), full["time_s"]) if not full["finished"]
-              else fmt_time(full["time_s"])), "100%", False, False),
+            _row(f"MinPrep · {repair_short}", repair, f"{repair['pct_imputed']:.1f}%", best=True),
+            _row("Drop all incomplete samples", drop, "0%"),
+            _row("Imputing all", full, "100%"),
         ]
         if ac is not None:
-            rows.append(("ActiveClean", fmt_score(ac["score"], slabel),
-                         (dnf_label(ac.get("dnf_reason"), ac["time_s"]) if not ac["finished"]
-                          else fmt_time(ac["time_s"])),
-                         f"{ac['pct_imputed']:.1f}%", False, False))
+            rows.append(_row("ActiveClean", ac, f"{ac['pct_imputed']:.1f}%"))
         else:
-            rows.append(("ActiveClean", None, None, None, False, True))
+            rows.append(("ActiveClean", None, None, None, False, True, False))
 
         html = ("<table class='mp-cmp'><thead><tr>"
                 f"<th>Method</th><th class='num'>{slabel}</th>"
                 "<th class='num'>Time</th><th class='num'>Imputation ratio</th>"
                 "</tr></thead><tbody>")
-        for label, sc, tm, imp, best, na in rows:
+        for label, sc, tm, imp, best, na, failed in rows:
             if na:
                 html += (f"<tr><td class='method'>{label}</td>"
                          "<td colspan='3' style='text-align:center;color:#94a3b8'>"
@@ -872,8 +938,9 @@ def page_imputation():
                 continue
             tag = "<span class='tag'>minimal repair</span>" if best else ""
             cls = " class='best'" if best else ""
+            tmcls = " style='color:#b91c1c'" if failed else ""
             html += (f"<tr{cls}><td class='method'>{label}{tag}</td>"
-                     f"<td class='num'>{sc}</td><td class='num'>{tm}</td>"
+                     f"<td class='num'>{sc}</td><td class='num'{tmcls}>{tm}</td>"
                      f"<td class='num'>{imp}</td></tr>")
         html += "</tbody></table>"
         st.markdown(html, unsafe_allow_html=True)
