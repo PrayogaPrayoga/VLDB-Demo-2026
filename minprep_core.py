@@ -1,7 +1,10 @@
 import importlib.util
+import json
+import os
 import re
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,17 +17,69 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder
 
 import utility_function as ut  # local MinPrep version (MinMaxScaler)
 
-# ── NEURIPS_2026 MR imports ───────────────────────────────────────────────────
-_NEURIPS_PATH = '/data/prayoga/MI/SVM/synthetic/NEURIPS_2026/'
-if _NEURIPS_PATH not in sys.path:
-    sys.path.insert(0, _NEURIPS_PATH)
+# ── Configurable paths ────────────────────────────────────────────────────────
+# The research code backing Minimal Repair lives outside this repository, in a
+# per-user directory that differs between machines. Override with env vars.
+REPO_ROOT = Path(__file__).resolve().parent
 
-from Minimal_Impute import findminimalImputation
+ALGO_PATH = Path(os.environ.get(
+    'MINPREP_ALGO_PATH', Path.home() / 'CM_code')).expanduser()
 
-_ut_nr_spec = importlib.util.spec_from_file_location(
-    'ut_nr', _NEURIPS_PATH + 'utility_function.py')
-ut_nr = importlib.util.module_from_spec(_ut_nr_spec)
-_ut_nr_spec.loader.exec_module(ut_nr)  # StandardScaler, no scale param
+SHARED_DIR = Path(os.environ.get(
+    'MINPREP_SHARED_DIR', REPO_ROOT / 'shared')).expanduser()
+
+DEFAULT_DATASET = Path(os.environ.get(
+    'MINPREP_DEFAULT_DATASET',
+    REPO_ROOT / 'Sample-Datasets' / 'water_potability.csv')).expanduser()
+
+DATASETS_DIR = REPO_ROOT / 'Sample-Datasets'
+
+# ── Demo mode ─────────────────────────────────────────────────────────────────
+# The app has two modes:
+#   * "run"  — actually executes CM/ACM checks, MR/AMR repair and baselines
+#              (slow; used to show real artifacts).
+#   * "demo" — serves pre-computed results from demo_results/results.json
+#              instantly (used on stage where there is no time to wait).
+# The build-level default comes from MINPREP_MODE; the notebook can override it
+# per-request via a hidden URL-parameter toggle.
+DEFAULT_MODE = os.environ.get('MINPREP_MODE', 'demo').strip().lower()
+
+DEMO_STORE_PATH = Path(os.environ.get(
+    'MINPREP_DEMO_STORE', REPO_ROOT / 'demo_results' / 'results.json')).expanduser()
+
+_algo_cache = {}
+_demo_cache = {}
+
+
+def load_algo():
+    """Import findminimalImputation and its companion utility module from
+    ALGO_PATH. Loaded on demand so that the CM check still works on machines
+    where the Minimal Repair research code is not present."""
+    if _algo_cache:
+        return _algo_cache
+
+    minimal_impute_py = ALGO_PATH / 'Minimal_Impute.py'
+    utility_py = ALGO_PATH / 'utility_function.py'
+    for required in (minimal_impute_py, utility_py):
+        if not required.exists():
+            raise FileNotFoundError(
+                f"{required} not found. Set MINPREP_ALGO_PATH to the directory "
+                f"containing Minimal_Impute.py and utility_function.py "
+                f"(currently {ALGO_PATH})."
+            )
+
+    if str(ALGO_PATH) not in sys.path:
+        sys.path.insert(0, str(ALGO_PATH))
+
+    from Minimal_Impute import findminimalImputation
+
+    spec = importlib.util.spec_from_file_location('ut_nr', str(utility_py))
+    ut_nr = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ut_nr)  # no scale param, unlike the local ut
+
+    _algo_cache['findminimalImputation'] = findminimalImputation
+    _algo_cache['ut_nr'] = ut_nr
+    return _algo_cache
 
 
 # ─── Data Utilities ───────────────────────────────────────────────────────────
@@ -340,12 +395,18 @@ def MR_main(X_train, Y_train, X_test, y_test, batch_size=50, top_k=0.3, seed=42,
     rows_with_missing = len(X_train[X_train.isnull().any(axis=1)])
     missing_factor = rows_with_missing / total_examples
 
-    # Minimal Repair: use NEURIPS findminimalImputation to find which rows truly need repair
+    # Minimal Repair: use findminimalImputation to find which rows truly need repair
+    algo = load_algo()
     mr_start = time.time()
     X_arr = X_train.reset_index(drop=True).values.astype(float)
     Y_arr = Y_train.reset_index(drop=True).values.copy()
 
-    minimal_indices, _ = findminimalImputation(X_arr, Y_arr, batch_size, top_k, seed=seed)
+    # Return arity differs between revisions of Minimal_Impute.py (some also
+    # return timing and diagnostics); the selected row indices are always first.
+    mr_result = algo['findminimalImputation'](
+        X_arr, Y_arr, batch_size, top_k, seed=seed)
+    minimal_indices = np.asarray(
+        mr_result[0] if isinstance(mr_result, tuple) else mr_result, dtype=int)
 
     # Impute only the identified minimal rows (mean imputation)
     X_repaired = X_arr.copy()
@@ -360,7 +421,8 @@ def MR_main(X_train, Y_train, X_test, y_test, batch_size=50, top_k=0.3, seed=42,
     Y_final = Y_arr[complete_mask]
 
     mr_scores = sorted(
-        (ut_nr.SGD_class(X_final, Y_final, X_test.values, y_test.values)[1] for _ in range(10)),
+        (algo['ut_nr'].SGD_class(X_final, Y_final, X_test.values, y_test.values)[1]
+         for _ in range(10)),
         reverse=True,
     )
     mr_score = sum(mr_scores[:8]) / 8
@@ -495,3 +557,193 @@ def MR_main_regression(X_train, Y_train, X_test, y_test, threshold=0.005, verbos
         {'Metric': 'MSE (MR)',                           'Value': mr_score},
     ]
     return pd.DataFrame(results), missing_data_table
+
+
+# ─── Demo Mode Lookups ─────────────────────────────────────────────────────────
+# These serve pre-computed results from demo_results/results.json so the app can
+# respond instantly on stage. They intentionally return small plain dicts; the
+# notebook renders them into the same metric-card layout that run mode uses.
+
+def load_demo_store():
+    """Load and cache the demo results store."""
+    if _demo_cache:
+        return _demo_cache['store']
+    if not DEMO_STORE_PATH.exists():
+        raise FileNotFoundError(
+            f"Demo results store not found at {DEMO_STORE_PATH}. "
+            f"Generate it with: python tools/build_demo_store.py"
+        )
+    with open(DEMO_STORE_PATH) as f:
+        store = json.load(f)
+    _demo_cache['store'] = store
+    return store
+
+
+def demo_datasets():
+    """Return [(key, display), ...] of datasets available in demo mode."""
+    store = load_demo_store()
+    return [(k, v['display']) for k, v in store['datasets'].items()]
+
+
+def demo_dataset_meta(dataset_key):
+    """Return the full store entry for one dataset (task, target, variants)."""
+    store = load_demo_store()
+    if dataset_key not in store['datasets']:
+        raise KeyError(f"Unknown demo dataset '{dataset_key}'")
+    return store['datasets'][dataset_key]
+
+
+def demo_default_variant(dataset_key):
+    """The variant selected by default for a dataset (lowest level / natural)."""
+    ds = demo_dataset_meta(dataset_key)
+    return ds.get('default_variant') or next(iter(ds['variants']))
+
+
+def demo_variants(dataset_key):
+    """Return [(variant_key, label, level), ...] for a dataset (missingness levels)."""
+    ds = demo_dataset_meta(dataset_key)
+    return [(vk, v['label'], v['level']) for vk, v in ds['variants'].items()]
+
+
+def demo_variant_meta(dataset_key, variant_key):
+    """Return the store entry for one (dataset, variant): stats + models."""
+    ds = demo_dataset_meta(dataset_key)
+    if variant_key not in ds['variants']:
+        raise KeyError(f"Unknown variant '{variant_key}' for '{dataset_key}'")
+    return ds['variants'][variant_key]
+
+
+def demo_models(dataset_key, variant_key):
+    """Return [(model_key, display), ...] for a dataset variant."""
+    variant = demo_variant_meta(dataset_key, variant_key)
+    return [(k, v['display']) for k, v in variant['models'].items()]
+
+
+def demo_methods():
+    """Return [(key, label), ...] of imputation methods offered in demo mode."""
+    store = load_demo_store()
+    return [(m['key'], m['label']) for m in store['methods']]
+
+
+def demo_feature_missingness(dataset_key, variant_key):
+    """Per-feature missingness for the profile page: (rows, features_total).
+
+    ``rows`` is a list of [feature_name, pct_missing] (already the top-N by
+    missingness). Synthesized at build time so it renders without a CSV.
+    """
+    stats = demo_variant_meta(dataset_key, variant_key)['stats']
+    return stats.get('feature_missing', []), stats.get('features_total', 0)
+
+
+def _model_entry(dataset_key, variant_key, model_key):
+    ds = demo_dataset_meta(dataset_key)
+    variant = demo_variant_meta(dataset_key, variant_key)
+    if model_key not in variant['models']:
+        raise KeyError(
+            f"Model '{model_key}' not available for '{dataset_key}/{variant_key}'")
+    return ds, variant, variant['models'][model_key]
+
+
+def demo_model_supports_check(dataset_key, variant_key, model_key):
+    """True if this model supports CM/ACM checking (convex models only).
+
+    MLP and FT-Transformer return False -> the app routes them straight to
+    minimal repair.
+    """
+    _, _, model = _model_entry(dataset_key, variant_key, model_key)
+    return bool(model.get('supports_check', True))
+
+
+def demo_model_supports_activeclean(dataset_key, variant_key, model_key):
+    """True if ActiveClean is a valid baseline for this model."""
+    _, _, model = _model_entry(dataset_key, variant_key, model_key)
+    return bool(model.get('supports_activeclean', True))
+
+
+def demo_drop_baseline(dataset_key, variant_key, model_key):
+    """Pre-computed 'drop all incomplete samples' baseline (method-independent)."""
+    ds, _, model = _model_entry(dataset_key, variant_key, model_key)
+    rec = model['drop_incomplete']
+    return {
+        'name': 'Drop all incomplete samples',
+        'score': rec['score'],
+        'score_label': model['score_label'],
+        'time_s': rec['time_s'],
+        'finished': bool(rec.get('finished', True)),
+        'dnf_reason': rec.get('dnf_reason'),
+        'rows_dropped': rec['rows_dropped'],
+        'pct_dropped': rec['pct_dropped'],
+        'higher_is_better': ds['task'] == 'classification',
+    }
+
+
+def demo_check(dataset_key, variant_key, model_key, is_acm, threshold):
+    """Pre-computed CM/ACM check verdict.
+
+    Returns a dict:
+        {name, exists, score, score_label, time_s, threshold, higher_is_better}
+    ACM exists when the user-provided threshold >= the stored acm_gap.
+    """
+    ds, _, model = _model_entry(dataset_key, variant_key, model_key)
+    check = model['check']
+    score_label = model['score_label']
+    higher_is_better = ds['task'] == 'classification'
+    if is_acm:
+        exists = float(threshold) >= float(check['acm_gap'])
+        return {
+            'name': 'ACM',
+            'exists': bool(exists),
+            'score': check['acm']['score'],
+            'score_label': score_label,
+            'time_s': check['acm']['time_s'],
+            'threshold': threshold,
+            'acm_gap': check['acm_gap'],
+            'higher_is_better': higher_is_better,
+        }
+    return {
+        'name': 'CM',
+        'exists': bool(check['cm']['exists']),
+        'score': check['cm']['score'],
+        'score_label': score_label,
+        'time_s': check['cm']['time_s'],
+        'threshold': None,
+        'acm_gap': None,
+        'higher_is_better': higher_is_better,
+    }
+
+
+def demo_repair(dataset_key, variant_key, model_key, is_acm, method_key):
+    """Pre-computed repair result. CM pairs with MR, ACM pairs with AMR."""
+    ds, _, model = _model_entry(dataset_key, variant_key, model_key)
+    which = 'amr' if is_acm else 'mr'
+    rec = model['by_method'][method_key][which]
+    return {
+        'name': 'AMR' if is_acm else 'MR',
+        'full_name': 'Almost Minimal Repair' if is_acm else 'Minimal Repair',
+        'score': rec['score'],
+        'score_label': model['score_label'],
+        'time_s': rec['time_s'],
+        'finished': bool(rec.get('finished', True)),
+        'dnf_reason': rec.get('dnf_reason'),
+        'pct_imputed': rec['pct_imputed'],
+        'rows_imputed': rec['rows_imputed'],
+        'higher_is_better': ds['task'] == 'classification',
+    }
+
+
+def demo_baseline(dataset_key, variant_key, model_key, method_key, which):
+    """Pre-computed baseline result. `which` is 'activeclean' or 'full_impute'."""
+    ds, _, model = _model_entry(dataset_key, variant_key, model_key)
+    rec = model['by_method'][method_key][which]
+    labels = {'activeclean': 'ActiveClean', 'full_impute': 'Full Imputation'}
+    return {
+        'name': labels[which],
+        'score': rec['score'],
+        'score_label': model['score_label'],
+        'time_s': rec['time_s'],
+        'finished': bool(rec.get('finished', True)),
+        'dnf_reason': rec.get('dnf_reason'),
+        'pct_imputed': rec['pct_imputed'],
+        'rows_imputed': rec['rows_imputed'],
+        'higher_is_better': ds['task'] == 'classification',
+    }
