@@ -132,6 +132,7 @@ DEFAULTS = {
     "threshold": 0.1,
     "method_key": None,
     "repair_ran": False,
+    "repair_method_ran": None,
 }
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
@@ -144,6 +145,7 @@ def go(step):
 def go_imputation():
     """Enter Step 5 fresh (hide stale results until the user runs the repair)."""
     st.session_state.repair_ran = False
+    st.session_state.repair_method_ran = None
     st.session_state.step = "imputation"
 
 
@@ -213,23 +215,29 @@ def race_saved(minprep_time, full, ac):
     """Return (saved_value_seconds_or_None, note_text) framed against Full/AC."""
     if full["finished"]:
         value = max(0.0, full["time_s"] - minprep_time)
-        note = "vs Full Repair"
+        note = "compute time vs Full Repair"
     else:
         value = None
         note = "Full Repair never finished \u2014 MinPrep did"
     if ac is not None:
         if ac["finished"]:
-            note += f" \u00b7 saved {fmt_duration(max(0.0, ac['time_s'] - minprep_time))} vs ActiveClean"
+            note += (f" \u00b7 saved {fmt_duration(max(0.0, ac['time_s'] - minprep_time))} "
+                     "compute time vs ActiveClean")
         else:
             note += " \u00b7 ActiveClean never finished"
     return value, note
 
 
-def race_effort(mr_rows, full_rows):
-    def h(r):
-        return "no cleaning" if r == 0 else f"~{fmt_duration(r * MANUAL_S_PER_ROW)} by hand"
-    return (f"Effort \u2014 MinPrep: {mr_rows:,} rows ({h(mr_rows)})   \u00b7   "
-            f"Full Repair: {full_rows:,} rows ({h(full_rows)})")
+def race_effort(mr_rows, full_rows, is_manual):
+    if is_manual:
+        def h(r):
+            return "no cleaning" if r == 0 else f"~{fmt_duration(r * MANUAL_S_PER_ROW)} by hand"
+        return (f"Effort \u2014 MinPrep: {mr_rows:,} rows ({h(mr_rows)})   \u00b7   "
+                f"Full Repair: {full_rows:,} rows ({h(full_rows)})")
+
+    def r(n):
+        return "no repair needed" if n == 0 else f"{n:,} rows repaired"
+    return f"Effort \u2014 MinPrep: {r(mr_rows)}   \u00b7   Full Repair: {r(full_rows)}"
 
 
 _RACE_CSS = """<style>
@@ -716,7 +724,7 @@ def page_check():
         ]
         saved_value, saved_note = race_saved(check["time_s"], full, ac)
         render_race(lanes, saved_value, saved_note,
-                    race_effort(0, full["rows_imputed"]), slabel)
+                    race_effort(0, full["rows_imputed"], base_method == "manual"), slabel)
         st.caption("Scenario 1 — MinPrep returns an accurate model with zero repair, while "
                    "ActiveClean and Full Repair spend time repairing unnecessarily.")
 
@@ -775,6 +783,7 @@ def page_check():
 
 def _mark_repair_ran():
     st.session_state.repair_ran = True
+    st.session_state.repair_method_ran = st.session_state.method_key
 
 
 def page_imputation():
@@ -817,7 +826,7 @@ def page_imputation():
     st.button(f"Run minimal repair ({repair_short}) →", type="primary",
               on_click=_mark_repair_ran, key="run_repair")
 
-    if not st.session_state.repair_ran:
+    if not st.session_state.repair_ran or st.session_state.repair_method_ran != method_key:
         st.caption("Pick an imputation method and run to see MinPrep's minimal repair "
                    "compared against the baselines.")
         st.write("")
@@ -848,11 +857,17 @@ def page_imputation():
             (f"MinPrep · {repair_short}", fmt_score(repair["score"], slabel),
              f"{repair['pct_imputed']:.1f}%", True, False),
             ("Drop all incomplete samples", fmt_score(drop["score"], slabel), "0%", False, False),
-            ("Imputing all", fmt_score(full["score"], slabel), "100%", False, False),
         ]
+        if full["finished"]:
+            m_rows.append(("Imputing all", fmt_score(full["score"], slabel), "100%", False, False))
+        else:
+            m_rows.append(("Imputing all", "—", "—", False, False))
         if ac is not None:
-            m_rows.append(("ActiveClean", fmt_score(ac["score"], slabel),
-                           f"{ac['pct_imputed']:.1f}%", False, False))
+            if ac["finished"]:
+                m_rows.append(("ActiveClean", fmt_score(ac["score"], slabel),
+                               f"{ac['pct_imputed']:.1f}%", False, False))
+            else:
+                m_rows.append(("ActiveClean", "—", "—", False, False))
         else:
             m_rows.append(("ActiveClean", None, None, False, True))
 
@@ -901,7 +916,7 @@ def page_imputation():
         lanes.append(race_lane("ActiveClean", None, PURPLE, slabel, na=True))
     saved_value, saved_note = race_saved(repair["time_s"], full, ac)
     render_race(lanes, saved_value, saved_note,
-                race_effort(repair["rows_imputed"], full["rows_imputed"]), slabel)
+                race_effort(repair["rows_imputed"], full["rows_imputed"], is_manual), slabel)
     st.caption(f"Scenario 2 & 3 — MinPrep repairs only the minimal subset "
                f"({repair['pct_imputed']:.1f}% of dirty samples) via {sel}, matching the "
                "accuracy of far more expensive baselines — which may not even finish at scale.")
