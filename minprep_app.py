@@ -125,12 +125,12 @@ st.markdown(
 DEFAULTS = {
     "step": "home",
     "mode": None,
-    "dataset_key": None,
-    "variant_key": None,
-    "model_key": None,
+    "dataset_key": "malware",
+    "variant_key": "60",
+    "model_key": "svm",
     "use_threshold": False,
     "threshold": 0.1,
-    "method_key": None,
+    "method_key": "manual",
     "repair_ran": False,
     "repair_method_ran": None,
 }
@@ -425,8 +425,8 @@ def page_home():
     )
     st.write("")
 
-    c1, c2 = st.columns(2, gap="large")
-    with c1:
+    _, ccenter, _ = st.columns([1, 2, 1], gap="large")
+    with ccenter:
         st.markdown(
             f"<div class='mp-card'>"
             f"<span class='mp-badge' style='background:#e0edff;color:{PRIMARY}'>RECOMMENDED FOR THE DEMO</span>"
@@ -441,21 +441,6 @@ def page_home():
         if st.button("Enter Demo Mode  →", type="primary", width='stretch', key="enter_demo"):
             st.session_state.mode = "demo"
             go("dataset")
-            st.rerun()
-    with c2:
-        st.markdown(
-            f"<div class='mp-card'>"
-            f"<span class='mp-badge' style='background:#f1f5f9;color:#475569'>LIVE COMPUTATION</span>"
-            "<h3>⚙️ Run Mode</h3>"
-            "<p>Actually execute the CM/ACM checks, minimal repair and baselines on real data "
-            "to show artifacts and timings. Slower — used off the clock.</p>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-        st.write("")
-        if st.button("Enter Run Mode  →", width='stretch', key="enter_run"):
-            st.session_state.mode = "run"
-            go("run")
             st.rerun()
 
 
@@ -970,16 +955,6 @@ def page_imputation():
                   type="primary", on_click=reset_all, width='stretch', key="imp_exit")
 
 
-def page_run():
-    header()
-    st.markdown("<div class='mp-h1'>Run Mode</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mp-sub'>Live computation of CM/ACM checks, minimal repair and "
-                "baselines on real data.</div>", unsafe_allow_html=True)
-    st.info("🚧 **Run mode — to be wired.**  We're building demo mode first; run mode will "
-            "execute the real pipeline here (or hand off to the existing notebook app).")
-    st.button("← Back to home", on_click=go, args=("home",))
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Router
 # ──────────────────────────────────────────────────────────────────────────────
@@ -990,6 +965,5 @@ PAGES = {
     "threshold": page_threshold,
     "check": page_check,
     "imputation": page_imputation,
-    "run": page_run,
 }
 PAGES.get(st.session_state.step, page_home)()
