@@ -2339,11 +2339,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8784,
-                "time_s": 0.5,
+                "score": 0.9648,
+                "time_s": 0.832,
                 "finished": true,
-                "rows_dropped": 319,
-                "pct_dropped": 20.0
+                "rows_dropped": 317,
+                "pct_dropped": 19.9
               }
             },
             "ft": {
@@ -3162,11 +3162,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8706,
-                "time_s": 0.5,
+                "score": 0.9598,
+                "time_s": 1.2141,
                 "finished": true,
-                "rows_dropped": 638,
-                "pct_dropped": 40.0
+                "rows_dropped": 656,
+                "pct_dropped": 41.1
               }
             },
             "ft": {
@@ -3985,11 +3985,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8334,
-                "time_s": 0.5,
+                "score": 0.9623,
+                "time_s": 0.9427,
                 "finished": true,
-                "rows_dropped": 958,
-                "pct_dropped": 60.0
+                "rows_dropped": 982,
+                "pct_dropped": 61.5
               }
             },
             "ft": {
@@ -4821,11 +4821,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8315,
-                "time_s": 0.5,
+                "score": 0.9211,
+                "time_s": 0.8518,
                 "finished": true,
-                "rows_dropped": 39,
-                "pct_dropped": 20.0
+                "rows_dropped": 30,
+                "pct_dropped": 19.2
               }
             },
             "ft": {
@@ -5644,11 +5644,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8199,
-                "time_s": 0.5,
+                "score": 0.9474,
+                "time_s": 0.6477,
                 "finished": true,
-                "rows_dropped": 79,
-                "pct_dropped": 40.0
+                "rows_dropped": 63,
+                "pct_dropped": 40.4
               }
             },
             "ft": {
@@ -6467,11 +6467,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.756,
-                "time_s": 0.5,
+                "score": 0.6316,
+                "time_s": 0.4293,
                 "finished": true,
-                "rows_dropped": 118,
-                "pct_dropped": 60.0
+                "rows_dropped": 94,
+                "pct_dropped": 60.3
               }
             },
             "ft": {
@@ -7303,11 +7303,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8094,
-                "time_s": 0.5,
+                "score": 0.8305,
+                "time_s": 1.2959,
                 "finished": true,
-                "rows_dropped": 61,
-                "pct_dropped": 20.0
+                "rows_dropped": 47,
+                "pct_dropped": 19.8
               }
             },
             "ft": {
@@ -8126,11 +8126,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.7845,
-                "time_s": 0.5,
+                "score": 0.7797,
+                "time_s": 0.9654,
                 "finished": true,
-                "rows_dropped": 121,
-                "pct_dropped": 40.0
+                "rows_dropped": 96,
+                "pct_dropped": 40.5
               }
             },
             "ft": {
@@ -8949,11 +8949,11 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.7355,
-                "time_s": 0.5,
+                "score": 0.7627,
+                "time_s": 0.6412,
                 "finished": true,
-                "rows_dropped": 182,
-                "pct_dropped": 60.0
+                "rows_dropped": 144,
+                "pct_dropped": 60.8
               }
             },
             "ft": {
