@@ -579,10 +579,17 @@ def load_demo_store():
     return store
 
 
+# Regression datasets are hidden from the demo for now: their committed MSE
+# numbers are on an inconsistent scale (repair/full vs. drop), so the accuracy
+# story isn't defensible yet. Flip to False to bring them back.
+HIDE_REGRESSION = True
+
+
 def demo_datasets():
     """Return [(key, display), ...] of datasets available in demo mode."""
     store = load_demo_store()
-    return [(k, v['display']) for k, v in store['datasets'].items()]
+    return [(k, v['display']) for k, v in store['datasets'].items()
+            if not (HIDE_REGRESSION and v.get('task') == 'regression')]
 
 
 def demo_dataset_meta(dataset_key):
