@@ -1,20 +1,20 @@
-"""MinPrep interactive demo — Streamlit wizard.
+"""MinPrep — interactive conference demo (Streamlit wizard).
 
-A page-based flow for the conference demo. In **demo mode** nothing is computed
-live; results are served instantly from ``demo_results/results.json`` (placeholder
-numbers for now, real paper numbers later).
+A self-contained, guided walkthrough of MinPrep. Nothing is computed live;
+results are served instantly from ``demo_results/results.json`` so the audience
+can explore the whole workflow in seconds and understand the system from the app
+alone.
 
 Flow:
-    Landing (Demo / Run)
-      └─ Demo
-           ├─ 1. Dataset       (select + data profile)
-           ├─ 2. Model         (pick ML model)
-           ├─ 3. Threshold      (set error tolerance? -> CM vs ACM)
-           ├─ 4. Check          (CM/ACM exists? placeholder numbers)
-           └─ 5. Imputation     (MR/AMR — stub, to be built)
+    Landing (what MinPrep does)
+      ├─ 1. Dataset    (pick data + inspect its dirty values)
+      ├─ 2. Model      (choose the model to train)
+      ├─ 3. Accuracy   (exact model vs. a small error tolerance -> CM vs ACM)
+      ├─ 4. Check      (is any repair needed? CM/ACM)
+      └─ 5. Repair     (repair only the minimal subset -> MR/AMR)
 
 Run:
-    streamlit run minprep_app.py --server.port 8501 --server.address 127.0.0.1
+    streamlit run minprep_app.py --server.port 8000 --server.address 0.0.0.0
 """
 import json
 import os
@@ -36,7 +36,7 @@ import minprep_core as mc
 # Page config + theming
 # ──────────────────────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="MinPrep",
+    page_title="MinPrep Demo",
     page_icon="🧹",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -99,7 +99,7 @@ st.markdown(
 
       .stButton>button {border-radius:10px; font-weight:600; padding:.55rem 1.1rem;}
 
-      /* comparison table (Scenario 1) */
+      /* comparison table */
       .mp-cmp {width:100%; border-collapse:collapse; margin:8px 0 4px 0; font-size:15px;
                border:1px solid #e2e8f0; border-radius:12px; overflow:hidden;}
       .mp-cmp th {text-align:left; padding:11px 16px; color:#64748b; font-size:12px;
@@ -114,6 +114,13 @@ st.markdown(
       .mp-cmp .tag {display:inline-block; font-size:11px; font-weight:700; padding:2px 8px;
                     border-radius:999px; background:#dcfce7; color:#059669; margin-left:8px;
                     vertical-align:middle;}
+
+      /* concept explainer callout (keeps the demo self-contained) */
+      .mp-explain {background:#f1f6fe; border:1px solid #dbe7fb; border-left:3px solid #2563eb;
+                   border-radius:10px; padding:12px 16px; font-size:14px; color:#334155;
+                   line-height:1.55; margin:2px 0 16px 0;}
+      .mp-explain b {color:#0f172a;}
+      .mp-explain .term {font-weight:700; color:#2563eb;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -126,7 +133,7 @@ DEFAULTS = {
     "step": "home",
     "mode": None,
     "dataset_key": "malware",
-    "variant_key": "60",
+    "variant_key": "1",
     "model_key": "svm",
     "use_threshold": False,
     "threshold": 0.1,
@@ -189,7 +196,7 @@ def fmt_duration(s):
 def dnf_label(reason, est_s):
     if reason == "oom":
         return "\u2717 out of memory"
-    return f"\u23f3 exceeded budget \u00b7 est ~{fmt_duration(est_s)}"
+    return f"\u23f3 overtime (OT) \u00b7 est ~{fmt_duration(est_s)}"
 
 
 def race_lane(name, res, accent, score_label, winner=False, tag=None, na=False):
@@ -372,10 +379,15 @@ def tile(label, value, accent=PRIMARY):
     )
 
 
+def explain(html):
+    """Compact concept callout so the audience can follow without prior context."""
+    st.markdown(f"<div class='mp-explain'>{html}</div>", unsafe_allow_html=True)
+
+
 DEMO_STEPS_FULL = [
     ("dataset", "Dataset"),
     ("model", "Model"),
-    ("threshold", "Threshold"),
+    ("threshold", "Accuracy"),
     ("check", "Check"),
     ("imputation", "Repair"),
 ]
@@ -413,32 +425,60 @@ def header(show_startover=True):
 # Pages
 # ──────────────────────────────────────────────────────────────────────────────
 def page_home():
-    st.markdown("<div class='mp-brand'>MinPrep</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mp-brand'>MinPrep Demo</div>", unsafe_allow_html=True)
     st.markdown(
         "<div class='mp-hero-title'>Minimal Data Cleaning for Model Training</div>",
         unsafe_allow_html=True,
     )
     st.markdown(
-        "<div class='mp-hero-sub'>Determine whether dirty data needs repair before training — "
-        "and if so, repair only the minimal subset needed for an accurate model.</div>",
+        "<div class='mp-hero-sub'>Training data is often <b>dirty</b>. Before spending time and "
+        "effort cleaning it, MinPrep answers two questions: <b>does this data need to be repaired "
+        "at all?</b> — and if so, <b>what is the smallest part you must repair</b> to still train "
+        "an accurate model?</div>",
         unsafe_allow_html=True,
     )
     st.write("")
 
-    _, ccenter, _ = st.columns([1, 2, 1], gap="large")
-    with ccenter:
+    c1, c2 = st.columns(2, gap="large")
+    with c1:
         st.markdown(
-            f"<div class='mp-card'>"
-            f"<span class='mp-badge' style='background:#e0edff;color:{PRIMARY}'>RECOMMENDED FOR THE DEMO</span>"
-            "<h3>🎬 Demo Mode</h3>"
-            "<p>A guided walkthrough with instant, pre-computed results. "
-            "Pick a dataset and model, choose your accuracy tolerance, and see whether "
-            "repair is needed — no waiting.</p>"
+            "<div class='mp-card'>"
+            "<h3>🧩 The problem</h3>"
+            "<p>To train on dirty data, people usually replace <i>every</i> dirty value with a "
+            "&ldquo;reasonable&rdquo; one, then train. Finding good replacements is slow and "
+            "costly — surveys report people spend about 80% of their time preparing and "
+            "repairing data.</p>"
+            "<p style='margin-top:10px'><b>MinPrep applies to any cleaning that replaces "
+            "values</b> — missing values, outliers, or domain-constraint violations. This demo "
+            "uses <b>missing values</b> as the running example.</p>"
             "</div>",
             unsafe_allow_html=True,
         )
-        st.write("")
-        if st.button("Enter Demo Mode  →", type="primary", width='stretch', key="enter_demo"):
+    with c2:
+        st.markdown(
+            "<div class='mp-card'>"
+            "<h3>💡 What MinPrep does</h3>"
+            "<p><b>1 · Checks if repair is even needed.</b> Sometimes a model trained on the "
+            "dirty data is provably as accurate as one trained on any repaired version — so you "
+            "can skip cleaning entirely.</p>"
+            "<p style='margin-top:10px'><b>2 · If repair is needed, repairs the minimum.</b> "
+            "MinPrep finds the smallest subset of dirty samples to repair and still learns an "
+            "accurate model — with theoretical guarantees for convex models.</p>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+
+    st.write("")
+    explain(
+        "You'll walk through five steps: <b>1)</b> pick a dataset and see its dirty values, "
+        "<b>2)</b> choose a model, <b>3)</b> state how accurate it must be, <b>4)</b> let MinPrep "
+        "check whether repair is needed, and <b>5)</b> if so, repair only the minimal subset. "
+        "Want the algorithms, theory, and proofs? Ask us at the poster."
+    )
+
+    _, cmid, _ = st.columns([1, 1.2, 1])
+    with cmid:
+        if st.button("Start the walkthrough  →", type="primary", width='stretch', key="enter_demo"):
             st.session_state.mode = "demo"
             go("dataset")
             st.rerun()
@@ -473,10 +513,18 @@ def synthetic_matrix_figure(feature_missing, n_rows=140, seed=0):
 
 def page_dataset():
     header()
-    st.markdown("<div class='mp-h1'>Step 1 · Choose a dataset</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mp-sub'>Dirty samples are assumed to be pre-detected. "
-                "Review the data profile, then continue.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mp-h1'>Step 1 · Pick a dataset and inspect its dirty data</div>",
+                unsafe_allow_html=True)
+    st.markdown("<div class='mp-sub'>Choose a dataset and review its profile — how many samples "
+                "and features it has, and how much of it is dirty.</div>",
+                unsafe_allow_html=True)
     step_indicator("dataset")
+    explain(
+        "<b>Dirty data</b> means values that need to be replaced. MinPrep handles any such case "
+        "(missing values, outliers, domain-constraint violations); this demo uses "
+        "<span class='term'>missing values</span> as the example. We assume the dirty entries "
+        "are already detected — a <b>dirty sample</b> is a row with at least one missing value."
+    )
 
     datasets = mc.demo_datasets()  # [(key, display)]
     labels = [d for _, d in datasets]
@@ -566,10 +614,11 @@ def page_model():
     header()
     _ensure_variant(st.session_state.dataset_key)
     meta = mc.demo_dataset_meta(st.session_state.dataset_key)
-    st.markdown("<div class='mp-h1'>Step 2 · Choose the ML model</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mp-h1'>Step 2 · Choose the model to train</div>",
+                unsafe_allow_html=True)
     tgt = meta.get("target")
     tgt_txt = f" (target: <code>{tgt}</code>)" if tgt else ""
-    st.markdown(f"<div class='mp-sub'>Target function to train on "
+    st.markdown(f"<div class='mp-sub'>Pick the model you want to train on "
                 f"<b>{meta['display']}</b>{tgt_txt}.</div>",
                 unsafe_allow_html=True)
 
@@ -586,12 +635,20 @@ def page_model():
         st.session_state.dataset_key, variant_key, model_key)
     step_indicator("model", supports_check)
 
+    explain(
+        "MinPrep supports <b>convex models</b> (linear regression, linear SVM, logistic "
+        "regression) and <b>non-convex models</b> (MLP, FT-Transformer). For convex models it "
+        "can mathematically <b>check</b> whether any repair is needed before training; "
+        "non-convex models skip that check and go straight to minimal repair."
+    )
+
     if supports_check:
-        st.caption("This model supports CM/ACM checking — MinPrep will first test whether "
-                   "any repair is needed before training.")
+        st.caption("✓ This is a convex model, so the next step lets MinPrep check whether any "
+                   "repair is needed — potentially avoiding all cleaning.")
     else:
-        st.info("MLP and FT-Transformer don't support CM/ACM checking — MinPrep goes "
-                "directly to **minimal repair (AMR)**.")
+        st.info("**MLP and FT-Transformer are non-convex models.** MinPrep can't give an exact "
+                "repair-needed check for them, so it skips the check and goes straight to "
+                "**minimal repair** — repairing only the smallest subset required.")
 
     st.write("")
     b1, b2, _ = st.columns([1, 1.8, 3.2])
@@ -608,10 +665,19 @@ def page_model():
 
 def page_threshold():
     header()
-    st.markdown("<div class='mp-h1'>Step 3 · Accuracy requirement</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mp-sub'>Do you require a strictly optimal model, or is a model "
-                "within a small error tolerance acceptable?</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mp-h1'>Step 3 · Set your accuracy requirement</div>",
+                unsafe_allow_html=True)
+    st.markdown("<div class='mp-sub'>How accurate must the trained model be? Your answer decides "
+                "which guarantee MinPrep checks in the next step.</div>", unsafe_allow_html=True)
     step_indicator("threshold")
+    explain(
+        "<b><span class='term'>Certain Model (CM)</span></b> — a single model that is optimal "
+        "<i>no matter how</i> the missing values are filled in. If a CM exists, you can train on "
+        "the dirty data as-is, with no repair.<br>"
+        "<b><span class='term'>Approximately Certain Model (ACM)</span></b> — a relaxation: a "
+        "model whose training loss stays within a small tolerance <b>e</b> of the best possible, "
+        "for every way of filling in the missing values. A larger <b>e</b> is easier to satisfy."
+    )
 
     choice = st.radio(
         "Set an error tolerance threshold?",
@@ -660,12 +726,20 @@ def page_check():
     check = mc.demo_check(dkey, vkey, st.session_state.model_key, use_thr, thr)
     name = check["name"]  # CM or ACM
 
-    st.markdown(f"<div class='mp-h1'>Step 4 · {name} check</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mp-h1'>Step 4 · Check whether repair is needed</div>",
+                unsafe_allow_html=True)
     route = (f"ACM · tolerance e = {check['threshold']:g}" if name == "ACM" else "CM · exact")
     st.markdown(f"<div class='mp-sub'>{ds['display']} · {vmeta['label']} &nbsp;·&nbsp; "
                 f"{model_disp} &nbsp;·&nbsp; {route}</div>",
                 unsafe_allow_html=True)
     step_indicator("check")
+    full_name = "Approximately Certain Model" if name == "ACM" else "Certain Model"
+    explain(
+        f"MinPrep efficiently tests whether a <b>{name}</b> ({full_name}) exists for your data "
+        f"and model — <i>without</i> enumerating every way to fill in the missing values. "
+        f"If it exists, <b>no repair is needed</b>; if not, only a minimal repair is required "
+        f"(next step)."
+    )
 
     exists = check["exists"]
     if exists:
@@ -708,10 +782,16 @@ def page_check():
             race_lane("Full Repair", full, AMBER, slabel),
         ]
         saved_value, saved_note = race_saved(check["time_s"], full, ac)
+        explain(
+            "The bars below replay measured runtimes (compressed to ~10 s). <b>MinPrep</b> "
+            "returns an accurate model with <b>no repair</b>, while the usual alternatives still "
+            "pay to clean data: <b>Full Repair</b> imputes <i>every</i> dirty value, and "
+            "<b>ActiveClean</b> iteratively cleans a subset (convex models only)."
+        )
         render_race(lanes, saved_value, saved_note,
                     race_effort(0, full["rows_imputed"], base_method == "manual"), slabel)
-        st.caption("Scenario 1 — MinPrep returns an accurate model with zero repair, while "
-                   "ActiveClean and Full Repair spend time repairing unnecessarily.")
+        st.caption("MinPrep returns an accurate model with zero repair, while Full Repair and "
+                   "ActiveClean spend time cleaning data that didn't need it.")
 
         with st.expander("Show detailed comparison table"):
             # A failed baseline (out of memory / over budget) shows only the
@@ -742,6 +822,9 @@ def page_check():
                          f"<td class='num'>{imp}</td></tr>")
             html += "</tbody></table>"
             st.markdown(html, unsafe_allow_html=True)
+            st.caption("Imputation ratio = share of dirty samples that get repaired "
+                       "(0% = none, 100% = all). MinPrep needs 0% here because a "
+                       f"{name} exists.")
 
         st.write("")
         b1, b2, _ = st.columns([1, 3, 1.5])
@@ -756,13 +839,16 @@ def page_check():
         colt, _ = st.columns([1, 3])
         with colt:
             tile(f"{name} check time", fmt_time(check["time_s"]), accent=PRIMARY)
+        st.caption("The check itself is cheap — this is the only cost so far. Because no "
+                   f"{name} exists, some repair is needed, so MinPrep will next repair the "
+                   "minimal subset (rather than everything).")
 
         st.write("")
         b1, b2, _ = st.columns([1, 1.4, 3.6])
         with b1:
             st.button("← Back", on_click=go, args=("threshold",), width='stretch')
         with b2:
-            st.button("Continue to Imputation →", type="primary",
+            st.button("Continue to minimal repair →", type="primary",
                       on_click=go_imputation, width='stretch')
 
 
@@ -789,7 +875,8 @@ def page_imputation():
     is_acm = st.session_state.use_threshold if supports_check else True
     repair_short = "AMR" if is_acm else "MR"
 
-    st.markdown("<div class='mp-h1'>Step 5 · Minimal repair</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mp-h1'>Step 5 · Repair only the minimal subset</div>",
+                unsafe_allow_html=True)
     if supports_check:
         route = f"no {'ACM' if is_acm else 'CM'} → {repair_short}"
     else:
@@ -797,16 +884,27 @@ def page_imputation():
     st.markdown(f"<div class='mp-sub'>{ds['display']} · {vmeta['label']} &nbsp;·&nbsp; "
                 f"{model_disp} &nbsp;·&nbsp; {route}</div>", unsafe_allow_html=True)
     step_indicator("imputation", supports_check)
+    repair_full = "Almost Minimal Repair (AMR)" if is_acm else "Minimal Repair (MR)"
+    explain(
+        f"Repairing every dirty value is expensive. Instead, MinPrep finds the <b>smallest "
+        f"subset of dirty samples</b> to repair so the trained model still meets your accuracy "
+        f"requirement — this is <b><span class='term'>{repair_full}</span></b>. Choose how to "
+        f"fill in those values, then run to compare MinPrep against common baselines."
+    )
 
     # ── Imputation method selection ────────────────────────────────────────
     methods = mc.demo_methods()  # [(key, label)]
     mlabels = [l for _, l in methods]
     mkeys = [k for k, _ in methods]
     default_idx = mkeys.index(st.session_state.method_key) if st.session_state.method_key in mkeys else 0
-    sel = st.selectbox("Imputation method for repair", mlabels, index=default_idx,
-                       key="method_select")
+    sel = st.selectbox("How to fill in the values (imputation method)", mlabels,
+                       index=default_idx, key="method_select")
     method_key = mkeys[mlabels.index(sel)]
     st.session_state.method_key = method_key
+    st.caption("<b>Imputation</b> = choosing replacement values for the dirty entries. Options "
+               "span statistical (KNN, MICE, MissForest), diffusion-based (TCSDI), and LLM-based "
+               "methods, plus manual repair by a domain expert. MinPrep works with any of them.",
+               unsafe_allow_html=True)
 
     st.button(f"Run minimal repair ({repair_short}) →", type="primary",
               on_click=_mark_repair_ran, key="run_repair")
@@ -840,31 +938,38 @@ def page_imputation():
 
         m_rows = [
             (f"MinPrep · {repair_short}", fmt_score(repair["score"], slabel),
-             f"{repair['pct_imputed']:.1f}%", True, False),
-            ("Drop all incomplete samples", fmt_score(drop["score"], slabel), "0%", False, False),
+             f"{repair['pct_imputed']:.1f}%", True, False, None),
+            ("Drop all incomplete samples", fmt_score(drop["score"], slabel), "0%", False, False, None),
         ]
         if full["finished"]:
-            m_rows.append(("Imputing all", fmt_score(full["score"], slabel), "100%", False, False))
+            m_rows.append(("Imputing all", fmt_score(full["score"], slabel), "100%", False, False, None))
         else:
-            m_rows.append(("Imputing all", "—", "—", False, False))
+            m_rows.append(("Imputing all", None, None, False, False,
+                           dnf_label(full.get("dnf_reason"), full["time_s"])))
         if ac is not None:
             if ac["finished"]:
                 m_rows.append(("ActiveClean", fmt_score(ac["score"], slabel),
-                               f"{ac['pct_imputed']:.1f}%", False, False))
+                               f"{ac['pct_imputed']:.1f}%", False, False, None))
             else:
-                m_rows.append(("ActiveClean", "—", "—", False, False))
+                m_rows.append(("ActiveClean", None, None, False, False,
+                               dnf_label(ac.get("dnf_reason"), ac["time_s"])))
         else:
-            m_rows.append(("ActiveClean", None, None, False, True))
+            m_rows.append(("ActiveClean", None, None, False, True, None))
 
         html = ("<table class='mp-cmp'><thead><tr>"
                 f"<th>Method</th><th class='num'>{slabel}</th>"
                 "<th class='num'>Imputation ratio</th>"
                 "</tr></thead><tbody>")
-        for label, sc, imp, best, na in m_rows:
+        for label, sc, imp, best, na, dnf in m_rows:
             if na:
                 html += (f"<tr><td class='method'>{label}</td>"
                          "<td colspan='2' style='text-align:center;color:#94a3b8'>"
                          "Not available for this model</td></tr>")
+                continue
+            if dnf:
+                html += (f"<tr><td class='method'>{label}</td>"
+                         "<td colspan='2' style='text-align:center;color:#b91c1c'>"
+                         f"{dnf} \u2014 never finished</td></tr>")
                 continue
             tag = "<span class='tag'>minimal repair</span>" if best else ""
             cls = " class='best'" if best else ""
@@ -872,11 +977,11 @@ def page_imputation():
                      f"<td class='num'>{sc}</td><td class='num'>{imp}</td></tr>")
         html += "</tbody></table>"
         st.markdown(html, unsafe_allow_html=True)
-        st.caption(f"Scenario 2 — with manual repair, MinPrep asks a domain expert to "
-                   f"hand-repair only {repair['pct_imputed']:.1f}% of the dirty samples "
+        st.caption(f"With manual repair, MinPrep asks a domain expert to hand-repair only "
+                   f"{repair['pct_imputed']:.1f}% of the dirty samples "
                    f"({repair['rows_imputed']:,} rows) versus 100% "
-                   f"({full['rows_imputed']:,} rows) for repairing everything, at matching "
-                   "model accuracy.")
+                   f"({full['rows_imputed']:,} rows) for repairing everything — at matching "
+                   "model accuracy. Imputation ratio = share of dirty samples repaired.")
 
         st.write("")
         b1, b2, _ = st.columns([1, 3, 1.5])
@@ -900,9 +1005,16 @@ def page_imputation():
     else:
         lanes.append(race_lane("ActiveClean", None, PURPLE, slabel, na=True))
     saved_value, saved_note = race_saved(repair["time_s"], full, ac)
+    explain(
+        "The bars replay measured runtimes (compressed to ~10 s). Compared with MinPrep: "
+        "<b>Drop incomplete</b> deletes every row that has a missing value (fast, but throws "
+        "away data and gives no accuracy guarantee); <b>Full Repair</b> imputes every dirty "
+        "value; <b>ActiveClean</b> iteratively cleans a subset (convex models only). At large "
+        "scale, the heavy baselines may run out of time or memory and never finish."
+    )
     render_race(lanes, saved_value, saved_note,
                 race_effort(repair["rows_imputed"], full["rows_imputed"], is_manual), slabel)
-    st.caption(f"Scenario 2 & 3 — MinPrep repairs only the minimal subset "
+    st.caption(f"MinPrep repairs only the minimal subset "
                f"({repair['pct_imputed']:.1f}% of dirty samples) via {sel}, matching the "
                "accuracy of far more expensive baselines — which may not even finish at scale.")
 
@@ -944,6 +1056,8 @@ def page_imputation():
                      f"<td class='num'>{imp}</td></tr>")
         html += "</tbody></table>"
         st.markdown(html, unsafe_allow_html=True)
+        st.caption("Imputation ratio = share of dirty samples that get repaired. A failed run "
+                   "(out of memory / over budget) shows only the reason — no accuracy or ratio.")
 
     st.write("")
     b1, b2, _ = st.columns([1, 3, 1.5])
