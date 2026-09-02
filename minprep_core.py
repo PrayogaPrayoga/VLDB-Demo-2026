@@ -579,17 +579,43 @@ def load_demo_store():
     return store
 
 
-# Regression datasets are hidden from the demo for now: their committed MSE
-# numbers are on an inconsistent scale (repair/full vs. drop), so the accuracy
-# story isn't defensible yet. Flip to False to bring them back.
-HIDE_REGRESSION = True
+# ─── Demo curation (stage allowlist) ───────────────────────────────────────────
+# What we actually put on stage, and in what order. This is an ALLOWLIST:
+# datasets not listed here are hidden from the demo — Water Potability and Breast
+# Cancer (weak / near-zero-missingness stories) and every regression set (whose
+# committed MSE numbers are on an inconsistent scale). For each exposed dataset we
+# also pin the model(s) and missingness level(s) to the combinations whose
+# drop-baseline story is grounded in demo_results/results.json. See the design
+# notes for the per-dataset rationale.
+#   'models'   : model keys to offer, in this display order.
+#   'variants' : missingness-level variant keys to offer (None = all in store).
+DEMO_CURATION = {
+    # Act 1 — Certification: a Certain Model exists -> no repair (convex only).
+    #   1/5% : CM EXISTS (SVM).  40/60% : CM gone -> Minimal Repair beats drop
+    #   (+0.114 / +0.083).  20% excluded (repair ties drop).
+    'malware':    {'models': ['svm'],        'variants': ['1', '5', '40', '60']},
+    # Act 2 — Repair beats dropping; drop baseline is REAL (injected sets).
+    'heart':      {'models': ['svm', 'mlp'], 'variants': ['40']},   # +0.125 / +0.040
+    'parkinsons': {'models': ['svm', 'mlp'], 'variants': ['60']},   # +0.240 / +0.285 (drop collapses)
+    # Act 2b — Repair beats dropping; drop baseline still PLACEHOLDER (illustrative).
+    'bankruptcy': {'models': ['svm', 'mlp'], 'variants': None},     # +0.122 / +0.107
+    'online_ed':  {'models': ['svm', 'mlp'], 'variants': None},     # +0.096 / +0.058
+    # Act 3 — Scalability wall: full imputation = OT; repair finishes and wins.
+    'fraud':      {'models': ['mlp', 'ft'],  'variants': ['40', '60']},  # MLP +0.27/+0.43, FT +0.27/+0.41
+    'higgs':      {'models': ['mlp', 'ft'],  'variants': ['40', '60']},  # MLP +0.15, FT +0.17/+0.19
+}
+
+
+def _curation(dataset_key):
+    """Curation entry for a dataset, or None if the dataset is not exposed."""
+    return DEMO_CURATION.get(dataset_key)
 
 
 def demo_datasets():
-    """Return [(key, display), ...] of datasets available in demo mode."""
+    """Return [(key, display), ...] of datasets exposed in the demo, in stage order."""
     store = load_demo_store()
-    return [(k, v['display']) for k, v in store['datasets'].items()
-            if not (HIDE_REGRESSION and v.get('task') == 'regression')]
+    return [(k, store['datasets'][k]['display'])
+            for k in DEMO_CURATION if k in store['datasets']]
 
 
 def demo_dataset_meta(dataset_key):
@@ -601,15 +627,21 @@ def demo_dataset_meta(dataset_key):
 
 
 def demo_default_variant(dataset_key):
-    """The variant selected by default for a dataset (lowest level / natural)."""
+    """The variant selected by default for a dataset: the first exposed level."""
+    variants = demo_variants(dataset_key)
+    if variants:
+        return variants[0][0]
     ds = demo_dataset_meta(dataset_key)
     return ds.get('default_variant') or next(iter(ds['variants']))
 
 
 def demo_variants(dataset_key):
-    """Return [(variant_key, label, level), ...] for a dataset (missingness levels)."""
+    """Return [(variant_key, label, level), ...] of exposed missingness levels."""
     ds = demo_dataset_meta(dataset_key)
-    return [(vk, v['label'], v['level']) for vk, v in ds['variants'].items()]
+    cur = _curation(dataset_key)
+    allowed = cur.get('variants') if cur else None
+    return [(vk, v['label'], v['level']) for vk, v in ds['variants'].items()
+            if allowed is None or vk in allowed]
 
 
 def demo_variant_meta(dataset_key, variant_key):
@@ -621,9 +653,16 @@ def demo_variant_meta(dataset_key, variant_key):
 
 
 def demo_models(dataset_key, variant_key):
-    """Return [(model_key, display), ...] for a dataset variant."""
+    """Return [(model_key, display), ...] of exposed models, in curated order."""
     variant = demo_variant_meta(dataset_key, variant_key)
-    return [(k, v['display']) for k, v in variant['models'].items()]
+    cur = _curation(dataset_key)
+    allowed = cur.get('models') if cur else None
+    if allowed is None:
+        return [(k, v['display']) for k, v in variant['models'].items()]
+    order = {k: i for i, k in enumerate(allowed)}
+    items = [(k, v) for k, v in variant['models'].items() if k in order]
+    items.sort(key=lambda kv: order[kv[0]])
+    return [(k, v['display']) for k, v in items]
 
 
 def demo_methods():

@@ -133,7 +133,7 @@ DEFAULTS = {
     "step": "home",
     "mode": None,
     "dataset_key": "malware",
-    "variant_key": "60",
+    "variant_key": "1",
     "model_key": "svm",
     "use_threshold": False,
     "threshold": 0.1,
@@ -196,7 +196,7 @@ def fmt_duration(s):
 def dnf_label(reason, est_s):
     if reason == "oom":
         return "\u2717 out of memory"
-    return f"\u23f3 exceeded budget \u00b7 est ~{fmt_duration(est_s)}"
+    return f"\u23f3 overtime (OT) \u00b7 est ~{fmt_duration(est_s)}"
 
 
 def race_lane(name, res, accent, score_label, winner=False, tag=None, na=False):
@@ -938,31 +938,38 @@ def page_imputation():
 
         m_rows = [
             (f"MinPrep · {repair_short}", fmt_score(repair["score"], slabel),
-             f"{repair['pct_imputed']:.1f}%", True, False),
-            ("Drop all incomplete samples", fmt_score(drop["score"], slabel), "0%", False, False),
+             f"{repair['pct_imputed']:.1f}%", True, False, None),
+            ("Drop all incomplete samples", fmt_score(drop["score"], slabel), "0%", False, False, None),
         ]
         if full["finished"]:
-            m_rows.append(("Imputing all", fmt_score(full["score"], slabel), "100%", False, False))
+            m_rows.append(("Imputing all", fmt_score(full["score"], slabel), "100%", False, False, None))
         else:
-            m_rows.append(("Imputing all", "—", "—", False, False))
+            m_rows.append(("Imputing all", None, None, False, False,
+                           dnf_label(full.get("dnf_reason"), full["time_s"])))
         if ac is not None:
             if ac["finished"]:
                 m_rows.append(("ActiveClean", fmt_score(ac["score"], slabel),
-                               f"{ac['pct_imputed']:.1f}%", False, False))
+                               f"{ac['pct_imputed']:.1f}%", False, False, None))
             else:
-                m_rows.append(("ActiveClean", "—", "—", False, False))
+                m_rows.append(("ActiveClean", None, None, False, False,
+                               dnf_label(ac.get("dnf_reason"), ac["time_s"])))
         else:
-            m_rows.append(("ActiveClean", None, None, False, True))
+            m_rows.append(("ActiveClean", None, None, False, True, None))
 
         html = ("<table class='mp-cmp'><thead><tr>"
                 f"<th>Method</th><th class='num'>{slabel}</th>"
                 "<th class='num'>Imputation ratio</th>"
                 "</tr></thead><tbody>")
-        for label, sc, imp, best, na in m_rows:
+        for label, sc, imp, best, na, dnf in m_rows:
             if na:
                 html += (f"<tr><td class='method'>{label}</td>"
                          "<td colspan='2' style='text-align:center;color:#94a3b8'>"
                          "Not available for this model</td></tr>")
+                continue
+            if dnf:
+                html += (f"<tr><td class='method'>{label}</td>"
+                         "<td colspan='2' style='text-align:center;color:#b91c1c'>"
+                         f"{dnf} \u2014 never finished</td></tr>")
                 continue
             tag = "<span class='tag'>minimal repair</span>" if best else ""
             cls = " class='best'" if best else ""

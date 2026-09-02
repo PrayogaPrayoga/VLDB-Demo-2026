@@ -9439,7 +9439,7 @@
                     "score": 0.999114,
                     "time_s": 253.1,
                     "finished": true,
-                    "pct_imputed": 12.4,
+                    "pct_imputed": 0.393,
                     "rows_imputed": 157562
                   },
                   "full_impute": {
@@ -9621,7 +9621,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.9243,
+                "score": 0.9713,
                 "time_s": 6.1,
                 "finished": true,
                 "rows_dropped": 1270661,
@@ -9781,7 +9781,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.9462,
+                "score": 0.9793,
                 "time_s": 6.0,
                 "finished": true,
                 "rows_dropped": 1270661,
@@ -9807,7 +9807,7 @@
                     "score": 0.9982,
                     "time_s": 242.9,
                     "finished": true,
-                    "pct_imputed": 14.9,
+                    "pct_imputed": 0.02,
                     "rows_imputed": 189328
                   },
                   "full_impute": {
@@ -9941,7 +9941,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.9372,
+                "score": 0.9793,
                 "time_s": 5.2,
                 "finished": true,
                 "rows_dropped": 1270661,
@@ -10258,7 +10258,7 @@
                     "score": 0.998709,
                     "time_s": 207.7,
                     "finished": true,
-                    "pct_imputed": 10.7,
+                    "pct_imputed": 0.246,
                     "rows_imputed": 271922
                   },
                   "full_impute": {
@@ -10440,7 +10440,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.9138,
+                "score": 0.6737,
                 "time_s": 6.1,
                 "finished": true,
                 "rows_dropped": 2541323,
@@ -10600,7 +10600,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.9278,
+                "score": 0.7256,
                 "time_s": 5.9,
                 "finished": true,
                 "rows_dropped": 2541323,
@@ -10626,7 +10626,7 @@
                     "score": 0.9865,
                     "time_s": 219.0,
                     "finished": true,
-                    "pct_imputed": 10.7,
+                    "pct_imputed": 0.02,
                     "rows_imputed": 271922
                   },
                   "full_impute": {
@@ -10760,7 +10760,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.9096,
+                "score": 0.7256,
                 "time_s": 5.6,
                 "finished": true,
                 "rows_dropped": 2541323,
@@ -11077,7 +11077,7 @@
                     "score": 0.998709,
                     "time_s": 220.3,
                     "finished": true,
-                    "pct_imputed": 9.8,
+                    "pct_imputed": 0.164,
                     "rows_imputed": 373574
                   },
                   "full_impute": {
@@ -11259,7 +11259,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8791,
+                "score": 0.5615,
                 "time_s": 5.3,
                 "finished": true,
                 "rows_dropped": 3811984,
@@ -11419,7 +11419,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.868,
+                "score": 0.5678,
                 "time_s": 5.3,
                 "finished": true,
                 "rows_dropped": 3811984,
@@ -11445,7 +11445,7 @@
                     "score": 0.957,
                     "time_s": 264.9,
                     "finished": true,
-                    "pct_imputed": 11.2,
+                    "pct_imputed": 0.26,
                     "rows_imputed": 426942
                   },
                   "full_impute": {
@@ -11579,7 +11579,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.8792,
+                "score": 0.5678,
                 "time_s": 5.6,
                 "finished": true,
                 "rows_dropped": 3811984,
@@ -11913,7 +11913,7 @@
                     "score": 0.637033,
                     "time_s": 429.6,
                     "finished": true,
-                    "pct_imputed": 7.7,
+                    "pct_imputed": 0.59,
                     "rows_imputed": 169400
                   },
                   "full_impute": {
@@ -12095,7 +12095,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6886,
+                "score": 0.5293,
                 "time_s": 8.8,
                 "finished": true,
                 "rows_dropped": 2200000,
@@ -12255,7 +12255,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6882,
+                "score": 0.6237,
                 "time_s": 8.9,
                 "finished": true,
                 "rows_dropped": 2200000,
@@ -12281,7 +12281,7 @@
                     "score": 0.7145,
                     "time_s": 395.8,
                     "finished": true,
-                    "pct_imputed": 10.8,
+                    "pct_imputed": 12.5,
                     "rows_imputed": 237600
                   },
                   "full_impute": {
@@ -12415,7 +12415,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6926,
+                "score": 0.6237,
                 "time_s": 8.7,
                 "finished": true,
                 "rows_dropped": 2200000,
@@ -12736,7 +12736,7 @@
                     "score": 0.63584,
                     "time_s": 367.8,
                     "finished": true,
-                    "pct_imputed": 8.3,
+                    "pct_imputed": 0.39,
                     "rows_imputed": 365200
                   },
                   "full_impute": {
@@ -12918,7 +12918,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6598,
+                "score": 0.5273,
                 "time_s": 8.4,
                 "finished": true,
                 "rows_dropped": 4400000,
@@ -13078,7 +13078,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6654,
+                "score": 0.544,
                 "time_s": 9.4,
                 "finished": true,
                 "rows_dropped": 4400000,
@@ -13104,7 +13104,7 @@
                     "score": 0.715,
                     "time_s": 370.9,
                     "finished": true,
-                    "pct_imputed": 9.1,
+                    "pct_imputed": 12.5,
                     "rows_imputed": 400400
                   },
                   "full_impute": {
@@ -13238,7 +13238,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6636,
+                "score": 0.544,
                 "time_s": 10.0,
                 "finished": true,
                 "rows_dropped": 4400000,
@@ -13559,7 +13559,7 @@
                     "score": 0.628452,
                     "time_s": 337.7,
                     "finished": true,
-                    "pct_imputed": 15.3,
+                    "pct_imputed": 0.28,
                     "rows_imputed": 1009800
                   },
                   "full_impute": {
@@ -13741,7 +13741,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6008,
+                "score": 0.5297,
                 "time_s": 9.0,
                 "finished": true,
                 "rows_dropped": 6600000,
@@ -13901,7 +13901,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6342,
+                "score": 0.5297,
                 "time_s": 8.7,
                 "finished": true,
                 "rows_dropped": 6600000,
@@ -13927,7 +13927,7 @@
                     "score": 0.7155,
                     "time_s": 399.8,
                     "finished": true,
-                    "pct_imputed": 10.5,
+                    "pct_imputed": 6.06,
                     "rows_imputed": 693000
                   },
                   "full_impute": {
@@ -14061,7 +14061,7 @@
                 }
               },
               "drop_incomplete": {
-                "score": 0.6518,
+                "score": 0.5297,
                 "time_s": 9.4,
                 "finished": true,
                 "rows_dropped": 6600000,
